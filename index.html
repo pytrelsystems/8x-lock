@@ -8,11 +8,218 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="8X" />
   <meta name="theme-color" content="#0e1114" />
+  <meta name="format-detection" content="telephone=no" />
   <title>8X</title>
   <link rel="apple-touch-icon" href="icon.svg">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root {
+      --bg: #0e1114;
+      --panel: #161b20;
+      --line: #2a323a;
+      --text: #e8edf1;
+      --muted: #8b97a3;
+      --accent: #3d6b5c;
+      --accent-2: #7ea394;
+      --radius: 12px;
+      --safe-t: env(safe-area-inset-top);
+      --safe-b: env(safe-area-inset-bottom);
+    }
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text);
+      font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    body {
+      min-height: 100dvh;
+      padding: calc(12px + var(--safe-t)) 14px calc(18px + var(--safe-b));
+    }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+    h1 { font-size: 17px; font-weight: 650; letter-spacing: 0.08em; margin: 0; }
+    .hint { color: var(--muted); font-size: 12px; }
+    .grid { display: flex; flex-direction: column; gap: 12px; }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+    .card-h { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+    .card-h span { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+    .row-btns { display: flex; gap: 6px; }
+    textarea {
+      width: 100%; min-height: 28vh; resize: vertical; border: 0; background: transparent;
+      color: var(--text); padding: 12px; font: 16px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    textarea:focus { outline: none; }
+    button {
+      background: #1d242b; color: var(--text); border: 1px solid var(--line);
+      border-radius: 8px; padding: 7px 10px; font-size: 13px; min-height: 36px;
+    }
+    button.primary { background: var(--accent); border-color: var(--accent); }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+    .actions button { min-height: 44px; font-size: 14px; }
+    .toast {
+      position: fixed; left: 50%; bottom: calc(16px + var(--safe-b)); transform: translateX(-50%);
+      background: #1d242b; border: 1px solid var(--line); color: var(--accent-2);
+      padding: 8px 12px; border-radius: 999px; font-size: 13px; opacity: 0; pointer-events: none;
+      transition: opacity .2s;
+    }
+    .toast.show { opacity: 1; }
+    .install { margin-top: 14px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    details { margin-top: 12px; color: var(--muted); font-size: 12px; }
+    pre { white-space: pre-wrap; font: 12px/1.45 ui-monospace, Menlo, monospace; }
+  </style>
 </head>
 <body>
-<p>placeholder</p>
+  <header>
+    <h1>8X-LOCK</h1>
+    <div class="hint" id="modeHint">Live encode</div>
+  </header>
+  <div class="grid">
+    <section class="card">
+      <div class="card-h">
+        <span>English</span>
+        <div class="row-btns">
+          <button type="button" id="btnPasteEn">Paste</button>
+          <button type="button" id="btnCopyEn">Copy</button>
+        </div>
+      </div>
+      <textarea id="en" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Type English…"></textarea>
+    </section>
+    <section class="card">
+      <div class="card-h">
+        <span>8X</span>
+        <div class="row-btns">
+          <button type="button" id="btnPasteX">Paste</button>
+          <button type="button" id="btnCopyX">Copy</button>
+        </div>
+      </div>
+      <textarea id="xx" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="8X1 …"></textarea>
+    </section>
+  </div>
+  <div class="actions">
+    <button class="primary" type="button" id="btnEncode">Generate 8X</button>
+    <button type="button" id="btnDecode">Decode</button>
+    <button type="button" id="btnShare">Share 8X</button>
+    <button type="button" id="btnClear">Clear</button>
+  </div>
+  <p class="install" id="installHint">In Safari: Share → Add to Home Screen.</p>
+  <details><summary>Spec</summary>
+  <pre>Prefix 8X1. Key pytrel. Map letters, reverse letter order, case travels with each letter. Numbers and punctuation pass through. Obfuscation, not crypto.</pre>
+  </details>
+  <div class="toast" id="toast"></div>
+<script>
+(function () {
+  const ALPHA = "abcdefghijklmnopqrstuvwxyz";
+  const KEYED = (() => {
+    const seen = new Set(); let out = "";
+    for (const ch of "pytrel" + ALPHA) {
+      if (!seen.has(ch) && ALPHA.includes(ch)) { seen.add(ch); out += ch; }
+    }
+    return out;
+  })();
+  const FWD = {}, REV = {};
+  for (let i = 0; i < 26; i++) { FWD[ALPHA[i]] = KEYED[i]; REV[KEYED[i]] = ALPHA[i]; }
+  function xf(token, table) {
+    const chars = token.split("");
+    const idx = [], letters = [];
+    chars.forEach((ch, i) => {
+      if (/[A-Za-z]/.test(ch)) {
+        idx.push(i);
+        const lower = ch.toLowerCase();
+        letters.push({ mapped: table[lower] || lower, upper: ch !== lower });
+      }
+    });
+    letters.reverse();
+    letters.forEach((item, n) => {
+      chars[idx[n]] = item.upper ? item.mapped.toUpperCase() : item.mapped;
+    });
+    return chars.join("");
+  }
+  const TOKEN_RE = /[A-Za-z]+|[0-9]+|[ \t]+|\r?\n|[^\sA-Za-z0-9]/g;
+  function encode(text) {
+    const raw = String(text || "");
+    if (!raw.trim()) return "";
+    return "8X1 " + (raw.match(TOKEN_RE) || []).map(t => /[A-Za-z]/.test(t) ? xf(t, FWD) : t).join("").replace(/^\s+/, "");
+  }
+  function decode(text) {
+    let raw = String(text || "").replace(/^8X1\s*/i, "");
+    if (!raw.trim()) return "";
+    return (raw.match(TOKEN_RE) || []).map(t => /[A-Za-z]/.test(t) ? xf(t, REV) : t).join("");
+  }
+  const en = document.getElementById("en");
+  const xx = document.getElementById("xx");
+  const toastEl = document.getElementById("toast");
+  let toastT;
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add("show");
+    clearTimeout(toastT);
+    toastT = setTimeout(() => toastEl.classList.remove("show"), 1400);
+  }
+  function fallbackCopy(text) {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  }
+  async function copyText(text, label) {
+    if (!text) { toast("Nothing to copy"); return; }
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+      } else if (!fallbackCopy(text)) {
+        throw new Error("copy failed");
+      }
+      toast(label + " copied");
+    } catch {
+      toast("Copy blocked — select text");
+    }
+  }
+  async function pasteInto(el, label) {
+    try {
+      if (navigator.clipboard && navigator.clipboard.readText) {
+        el.value = await navigator.clipboard.readText();
+        el.dispatchEvent(new Event("input"));
+        toast("Pasted into " + label);
+        return;
+      }
+    } catch {}
+    toast("Paste blocked — long-press the field");
+    el.focus();
+  }
+  document.getElementById("btnEncode").onclick = () => { xx.value = encode(en.value); toast("Generated 8X"); };
+  document.getElementById("btnDecode").onclick = () => { en.value = decode(xx.value); toast("Decoded"); };
+  document.getElementById("btnCopyX").onclick = () => copyText(xx.value, "8X");
+  document.getElementById("btnCopyEn").onclick = () => copyText(en.value, "English");
+  document.getElementById("btnPasteX").onclick = () => pasteInto(xx, "8X");
+  document.getElementById("btnPasteEn").onclick = () => pasteInto(en, "English");
+  document.getElementById("btnClear").onclick = () => { en.value = ""; xx.value = ""; toast("Cleared"); };
+  document.getElementById("btnShare").onclick = async () => {
+    const text = xx.value || encode(en.value);
+    if (!text) { toast("Nothing to share"); return; }
+    xx.value = text;
+    if (navigator.share) {
+      try { await navigator.share({ text }); toast("Share sheet opened"); return; } catch {}
+    }
+    copyText(text, "8X");
+  };
+  let live = true;
+  let t = null;
+  en.addEventListener("input", () => {
+    if (!live) return;
+    clearTimeout(t);
+    t = setTimeout(() => { xx.value = encode(en.value); }, 50);
+  });
+  xx.addEventListener("input", () => {
+    live = !xx.value.trim();
+    document.getElementById("modeHint").textContent = live ? "Live encode" : "Manual decode";
+  });
+  if (window.navigator.standalone) {
+    document.getElementById("installHint").textContent = "Running as Home Screen app.";
+  }
+})();
+</script>
 </body>
 </html>
