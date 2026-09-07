@@ -1,12 +1,92 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
-<meta name="apple-mobile-web-app-title" content="8X" />
-<meta name="theme-color" content="#0e1114" />
-<title>8X</title>
-<link rel="apple-touch-icon" href="icon.svg">
-<p>Open lock.pytrel.com after Pages refresh. 8X2 passphrase build is in artifacts; if this stub ships, replace with full index from local 8x-lock-index.html.</p>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="8X" />
+  <meta name="theme-color" content="#0e1114" />
+  <title>8X</title>
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root { --bg:#0e1114; --panel:#161b20; --line:#2a323a; --text:#e8edf1; --muted:#8b97a3; --accent:#3d6b5c; --accent-2:#7ea394; --radius:12px; --safe-t:env(safe-area-inset-top); --safe-b:env(safe-area-inset-bottom); }
+    * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+    html,body { margin:0; padding:0; background:var(--bg); color:var(--text); font:16px/1.4 -apple-system,BlinkMacSystemFont,sans-serif; }
+    body { min-height:100dvh; padding:calc(12px + var(--safe-t)) 14px calc(18px + var(--safe-b)); }
+    header { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:10px; }
+    h1 { font-size:17px; font-weight:650; letter-spacing:.08em; margin:0; }
+    .hint { color:var(--muted); font-size:12px; }
+    .keyrow { display:flex; gap:8px; margin-bottom:12px; }
+    .keyrow input { flex:1; min-height:44px; border:1px solid var(--line); border-radius:10px; background:var(--panel); color:var(--text); padding:10px 12px; font-size:16px; }
+    .grid { display:flex; flex-direction:column; gap:12px; }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden; }
+    .card-h { display:flex; align-items:center; justify-content:space-between; padding:8px 10px; border-bottom:1px solid var(--line); }
+    .card-h span { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); }
+    textarea { width:100%; min-height:24vh; resize:vertical; border:0; background:transparent; color:var(--text); padding:12px; font:16px/1.45 ui-monospace,Menlo,monospace; }
+    button { background:#1d242b; color:var(--text); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:13px; min-height:36px; }
+    button.primary { background:var(--accent); border-color:var(--accent); }
+    .actions { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+    .actions button { min-height:44px; font-size:14px; }
+    .toast { position:fixed; left:50%; bottom:calc(16px + var(--safe-b)); transform:translateX(-50%); background:#1d242b; border:1px solid var(--line); color:var(--accent-2); padding:8px 12px; border-radius:999px; font-size:13px; opacity:0; pointer-events:none; }
+    .toast.show { opacity:1; }
+    .install, details { margin-top:12px; color:var(--muted); font-size:12px; }
+    pre { white-space:pre-wrap; font:12px/1.45 ui-monospace,Menlo,monospace; }
+  </style>
+</head>
+<body>
+  <header><h1>8X-LOCK</h1><div class="hint" id="modeHint">8X1</div></header>
+  <div class="keyrow"><input id="pass" type="password" placeholder="Passphrase (optional → 8X2)" autocomplete="off" /></div>
+  <div class="grid">
+    <section class="card"><div class="card-h"><span>English</span><div><button type="button" id="btnPasteEn">Paste</button> <button type="button" id="btnCopyEn">Copy</button></div></div>
+      <textarea id="en" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Type English…"></textarea></section>
+    <section class="card"><div class="card-h"><span>8X</span><div><button type="button" id="btnPasteX">Paste</button> <button type="button" id="btnCopyX">Copy</button></div></div>
+      <textarea id="xx" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="8X1 or 8X2…"></textarea></section>
+  </div>
+  <div class="actions">
+    <button class="primary" type="button" id="btnEncode">Generate</button>
+    <button type="button" id="btnDecode">Decode</button>
+    <button type="button" id="btnShare">Share</button>
+    <button type="button" id="btnClear">Clear</button>
+  </div>
+  <p class="install">Empty passphrase = 8X1. Passphrase set = 8X2 AES-GCM. Replace the Home Screen copy after this update.</p>
+  <details><summary>Spec</summary><pre>8X1: pytrel map + reverse letters.
+8X2: 8X1 encrypted with PBKDF2-SHA256 100000 + AES-GCM.
+Grok chat still sees whatever you paste here.</pre></details>
+  <div class="toast" id="toast"></div>
+<script>
+(function(){
+  const ALPHA="abcdefghijklmnopqrstuvwxyz";
+  const KEYED=(()=>{const seen=new Set();let out="";for(const ch of "pytrel"+ALPHA){if(!seen.has(ch)&&ALPHA.includes(ch)){seen.add(ch);out+=ch;}}return out;})();
+  const FWD={},REV={};for(let i=0;i<26;i++){FWD[ALPHA[i]]=KEYED[i];REV[KEYED[i]]=ALPHA[i];}
+  function xf(token,table){const chars=token.split(""),idx=[],letters=[];chars.forEach((ch,i)=>{if(/[A-Za-z]/.test(ch)){idx.push(i);const lower=ch.toLowerCase();letters.push({mapped:table[lower]||lower,upper:ch!==lower});}});letters.reverse();letters.forEach((item,n)=>{chars[idx[n]]=item.upper?item.mapped.toUpperCase():item.mapped;});return chars.join("");}
+  const TOKEN_RE=/[A-Za-z]+|[0-9]+|[ \t]+|\r?\n|[^\sA-Za-z0-9]/g;
+  function encode8x1(text){const raw=String(text||"");if(!raw.trim())return"";return"8X1 "+(raw.match(TOKEN_RE)||[]).map(t=>/[A-Za-z]/.test(t)?xf(t,FWD):t).join("").replace(/^\s+/,"");}
+  function decode8x1(text){let raw=String(text||"").replace(/^8X1\s*/i,"");if(!raw.trim())return"";return(raw.match(TOKEN_RE)||[]).map(t=>/[A-Za-z]/.test(t)?xf(t,REV):t).join("");}
+  function b64(bytes){let s="";bytes.forEach(b=>s+=String.fromCharCode(b));return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");}
+  function unb64(s){s=s.replace(/-/g,"+").replace(/_/g,"/");while(s.length%4)s+="=";const bin=atob(s);const out=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)out[i]=bin.charCodeAt(i);return out;}
+  async function deriveKey(pass,salt){const enc=new TextEncoder();const base=await crypto.subtle.importKey("raw",enc.encode(pass),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:100000,hash:"SHA-256"},base,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);}
+  async function encrypt2(plain,pass){const salt=crypto.getRandomValues(new Uint8Array(16));const iv=crypto.getRandomValues(new Uint8Array(12));const key=await deriveKey(pass,salt);const ct=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv},key,new TextEncoder().encode(plain)));const pack=new Uint8Array(16+12+ct.length);pack.set(salt,0);pack.set(iv,16);pack.set(ct,28);return"8X2 "+b64(pack);}
+  async function decrypt2(token,pass){const raw=String(token||"").replace(/^8X2\s*/i,"").trim();const pack=unb64(raw);if(pack.length<29)throw new Error("short");const salt=pack.slice(0,16),iv=pack.slice(16,28),ct=pack.slice(28);const key=await deriveKey(pass,salt);const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv},key,ct);return new TextDecoder().decode(pt);}
+  const en=document.getElementById("en"),xx=document.getElementById("xx"),pass=document.getElementById("pass"),toastEl=document.getElementById("toast");
+  let toastT;function toast(msg){toastEl.textContent=msg;toastEl.classList.add("show");clearTimeout(toastT);toastT=setTimeout(()=>toastEl.classList.remove("show"),1600);}
+  function fallbackCopy(text){const ta=document.createElement("textarea");ta.value=text;ta.setAttribute("readonly","");ta.style.position="fixed";ta.style.left="-9999px";document.body.appendChild(ta);ta.select();ta.setSelectionRange(0,ta.value.length);const ok=document.execCommand("copy");document.body.removeChild(ta);return ok;}
+  async function copyText(text,label){if(!text){toast("Nothing to copy");return;}try{if(navigator.clipboard&&window.isSecureContext)await navigator.clipboard.writeText(text);else if(!fallbackCopy(text))throw new Error("copy");toast(label+" copied");}catch{toast("Copy blocked");}}
+  async function pasteInto(el){try{if(navigator.clipboard&&navigator.clipboard.readText){el.value=await navigator.clipboard.readText();el.dispatchEvent(new Event("input"));toast("Pasted");return;}}catch{}toast("Long-press to paste");el.focus();}
+  async function generate(){const body=encode8x1(en.value);if(!body){toast("Nothing to encode");return;}const p=pass.value;xx.value=p?await encrypt2(body,p):body;document.getElementById("modeHint").textContent=p?"8X2":"8X1";toast(p?"Generated 8X2":"Generated 8X1");}
+  async function decodeAll(){const raw=xx.value.trim();if(!raw){toast("Nothing to decode");return;}try{if(/^8X2\b/i.test(raw)){if(!pass.value){toast("Passphrase required");return;}en.value=decode8x1(await decrypt2(raw,pass.value));toast("Decoded 8X2");}else{en.value=decode8x1(raw);toast("Decoded 8X1");}}catch{toast("Decode failed");}}
+  document.getElementById("btnEncode").onclick=()=>generate();
+  document.getElementById("btnDecode").onclick=()=>decodeAll();
+  document.getElementById("btnCopyX").onclick=()=>copyText(xx.value,"8X");
+  document.getElementById("btnCopyEn").onclick=()=>copyText(en.value,"English");
+  document.getElementById("btnPasteX").onclick=()=>pasteInto(xx);
+  document.getElementById("btnPasteEn").onclick=()=>pasteInto(en);
+  document.getElementById("btnClear").onclick=()=>{en.value="";xx.value="";toast("Cleared");};
+  document.getElementById("btnShare").onclick=async()=>{if(!xx.value)await generate();const text=xx.value;if(!text)return;if(navigator.share){try{await navigator.share({text});return;}catch{}}copyText(text,"8X");};
+  let t=null;en.addEventListener("input",()=>{if(pass.value)return;clearTimeout(t);t=setTimeout(()=>{xx.value=encode8x1(en.value);},50);});
+})();
+</script>
+</body>
 </html>
